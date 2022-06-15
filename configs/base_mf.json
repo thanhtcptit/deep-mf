@@ -2,28 +2,29 @@
     "seed": 442,
     "data": {
         "path": {
-            "train": "data/processed/train.csv",
-            "val":   "data/processed/val.csv",
-            "test":  "data/processed/test.csv"
-        }
+            "raw": "data/raw/50k",
+            "processed": "data/processed/50k"
+        },
+        "neg_to_pos_ratio": 0.5
     },
     "model": {
-        "type": "base",
-        "depth": 2,
-        "hidden_units": 64,
-        "act": "relu",
-        "drop_out": 0.3
+        "type": "mf",
+        "latent_dim": 32,
+        "l2_reg": 5e-3,
+        "unit_norm_emb": false,
+        "use_bias": false,
+        "act": "sigmoid"
     },
     "trainer": {
         "num_epochs": 20,
-        "batch_size": 64,
+        "batch_size": 1024,
         "loss_fn": {
-            "type": "focal"
+            "type": "wbce"
         },
         "optimizer": {
-            "type": "adam",
+            "type": "sgd",
             "params": {
-                "learning_rate": 3e-5
+                "learning_rate": 0.1
             }
         },
         "callbacks": [

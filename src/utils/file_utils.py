@@ -28,9 +28,11 @@ def load_dict(file_path, sep=",", skip_header=False):
     return d
 
 
-def load_csv(file_path):
+def load_csv(file_path, skip_header=False):
     data = []
     with open(file_path, encoding='utf-8') as f:
+        if skip_header:
+            f.readline()
         for line in f:
             data.append(line.strip().split(','))
     return data

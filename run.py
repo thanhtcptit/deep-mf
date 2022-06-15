@@ -32,6 +32,7 @@ def main(subcommand_overrides={}):
     subparsers = parser.add_subparsers(title="Commands", metavar="")
 
     subcommands = {
+        "preprocess": Preprocess(),
         "train": Train(),
         "hyp": HyperparamsSearch(),
         "eval": Evaluate(),
@@ -55,6 +56,28 @@ def main(subcommand_overrides={}):
         args.func(args)
     else:
         parser.print_help()
+
+
+class Preprocess(Subcommand):
+    def add_subparser(self, name, subparsers):
+        description = "Run data preprocess"
+        subparser = subparsers.add_parser(name, description=description,
+                                          help=description)
+
+        subparser.add_argument(
+            "config_path", type=str,
+            help="path to the json config file")
+        subparser.add_argument(
+            "-f", "--force", action="store_true",
+            help="force override serialization dir")
+
+        subparser.set_defaults(func=preprocess)
+        return subparser
+
+
+def preprocess(args):
+    from src.data.preprocess import main as func
+    return func(args.config_path, args.force)
 
 
 class Train(Subcommand):
@@ -82,7 +105,8 @@ class Train(Subcommand):
 
 
 def train_model(args):
-    raise NotImplementedError()
+    from src.train import train as func
+    return func(args.config_path, args.save_dir, args.recover, args.force)
 
 
 class HyperparamsSearch(Subcommand):

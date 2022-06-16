@@ -21,8 +21,8 @@ class MF(BaseModel):
             self.emb_constrains = None
         self.use_bias = use_bias
         self.act = act
-        
-        self.user_emb_devices = "gpu"
+
+        self.user_emb_devices = "gpu" if len(tf.config.list_physical_devices('GPU')) else "cpu"
         if num_users >= 5e5:
             self.user_emb_devices = "cpu"
 

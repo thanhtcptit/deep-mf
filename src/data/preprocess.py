@@ -61,7 +61,7 @@ def main(config_path, force):
 
     item_map_file = os.path.join(raw_data_dir, "item_map.csv")
     item_map_df = pd.read_csv(item_map_file)
-    item_set = set(item_map_df["item"].tolist())
+    item_set = set(item_map_df["index"].tolist())
 
     if "normalize" in data_config:
         norm_func = normalize(**data_config["normalize"])

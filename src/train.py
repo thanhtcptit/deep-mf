@@ -21,6 +21,7 @@ def create_tf_dataset(data, batch_size, is_train=False):
         data, batch_size=batch_size, column_defaults=[tf.int32, tf.int32, tf.float32],
         label_name="label", shuffle=is_train,
         shuffle_buffer_size=20 * batch_size, shuffle_seed=442,
+        prefetch_buffer_size=tf.data.experimental.AUTOTUNE,
         num_parallel_reads=tf.data.experimental.AUTOTUNE, sloppy=True)
     return tf_dataset
 
@@ -66,7 +67,7 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
     model = BaseModel.from_params(model_config).build_graph()
     if recover:
         model.load_weights(weight_dir)
-
+    model.summary()
     model.compile(
         optimizer=get_optimizer(trainer_config["optimizer"]["type"])(**trainer_config["optimizer"].get("params", {})),
         loss=get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {})),

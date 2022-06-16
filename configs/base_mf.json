@@ -17,7 +17,7 @@
     },
     "trainer": {
         "num_epochs": 20,
-        "batch_size": 1024,
+        "batch_size": 2560,
         "loss_fn": {
             "type": "wbce"
         },

@@ -15,6 +15,8 @@ def add_negative_samples(df, item_set, neg_to_pos_ratio):
     for user_id in tqdm(user_positive_examples.keys()):
         num_neg_samples = int(np.ceil(neg_to_pos_ratio * len(user_positive_examples[user_id])))
         neg_candidates = list(item_set - set(user_positive_examples[user_id]))
+        if num_neg_samples > len(neg_candidates):
+            num_neg_samples = len(neg_candidates)
         neg_items = np.random.choice(neg_candidates, num_neg_samples, replace=False)
         neg_examples = [{"uid": user_id, "item": j, "label": 0} for j in neg_items]
         df = df.append(neg_examples, ignore_index=True)
@@ -52,12 +54,17 @@ def main(config_path, force):
             raise ValueError(f"{processed_data_dir} already exists!")
     os.makedirs(processed_data_dir, exist_ok=True)
 
-    shutil.copy(
-        os.path.join(raw_data_dir, "metadata.csv"),
-        os.path.join(processed_data_dir, "metadata.csv"))
+    resources = ["metadata.csv", "user_map.csv", "item_map.csv", "kw_map.json"]
+    for f in resources:
+        shutil.copy(
+            os.path.join(raw_data_dir, f),
+            os.path.join(processed_data_dir, f))
 
     train_file = os.path.join(raw_data_dir, "train.csv")
     train_df = pd.read_csv(train_file)
+    
+    val_file = os.path.join(raw_data_dir, "val.csv")
+    val_df = pd.read_csv(val_file)
 
     item_map_file = os.path.join(raw_data_dir, "item_map.csv")
     item_map_df = pd.read_csv(item_map_file)
@@ -66,6 +73,10 @@ def main(config_path, force):
     if "normalize" in data_config:
         norm_func = normalize(**data_config["normalize"])
         train_df = train_df["label"].map(lambda v: norm_func(v))
+        val_df = train_df["label"].map(lambda v: norm_func(v))
     train_df = add_negative_samples(train_df, item_set, data_config["neg_to_pos_ratio"])
     train_df = train_df.sample(frac=1, random_state=442).reset_index(drop=True)
     train_df.to_csv(os.path.join(processed_data_dir, "train.csv"), index=False)
+
+    val_df = add_negative_samples(val_df, item_set, data_config["neg_to_pos_ratio"])
+    val_df.to_csv(os.path.join(processed_data_dir, "val.csv"), index=False)

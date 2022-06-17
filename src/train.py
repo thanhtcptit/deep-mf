@@ -1,4 +1,5 @@
 import os
+import glob
 import time
 import shutil
 import collections
@@ -12,7 +13,7 @@ from tqdm import tqdm
 
 from src.utils.train_utils import *
 from src.models.base import BaseModel
-from src.utils import Params, save_json, save_txt, load_json, load_csv, Logger
+from src.utils import Params, save_json, save_txt, load_json, load_dict, load_csv, Logger
 
 tf.get_logger().setLevel('INFO')
 
@@ -159,7 +160,7 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
     return results[0]
 
 
-def eval(checkpoint_dir, dataset_path):
+def test(checkpoint_dir, dataset_path):
     config = Params.from_file(os.path.join(checkpoint_dir, "config.json"))
     data_config = config["data"]
     model_config = config["model"]
@@ -169,7 +170,10 @@ def eval(checkpoint_dir, dataset_path):
         dataset_path = os.path.join(data_config["path"]["processed"], "val.csv")
     test_df = pd.read_csv(dataset_path)
     test_dataset = create_tf_dataset(test_df, trainer_config["batch_size"], is_train=True)
-
+    
+    metadata = load_csv(os.path.join(data_config["path"]["processed"], "metadata.csv"), skip_header=True)
+    model_config["num_users"] = int(metadata[0][0]) + 1
+    model_config["num_items"] = int(metadata[0][1]) + 1
     model = BaseModel.from_params(model_config).build_graph()
     model.load_weights(os.path.join(checkpoint_dir, "checkpoints/best.ckpt"))
     model.compile(
@@ -178,6 +182,65 @@ def eval(checkpoint_dir, dataset_path):
     metrics = model.evaluate(test_dataset)
     print(metrics)
     return metrics
+
+
+def test_keyword(checkpoint_dir, dataset_path):
+    config = Params.from_file(os.path.join(checkpoint_dir, "config.json"))
+    data_config = config["data"]
+    model_config = config["model"]
+
+    metadata = load_csv(os.path.join(data_config["path"]["processed"], "metadata.csv"), skip_header=True)
+    model_config["num_users"] = int(metadata[0][0]) + 1
+    model_config["num_items"] = int(metadata[0][1]) + 1
+    model = BaseModel.from_params(model_config).build_graph()
+    model.load_weights(os.path.join(checkpoint_dir, "checkpoints/best.ckpt"))
+
+    user_emb = model.layers[2].weights[0].numpy()
+    item_emb = model.layers[3].weights[0].numpy()
+
+    if not dataset_path:
+        dataset_path = os.path.join(data_config["path"]["processed"], "val.csv")
+
+    kw_to_item_list = load_json(os.path.join(data_config["path"]["processed"], "kw_map.json"))
+    user_map_file = os.path.join(data_config["path"]["processed"], "user_map.csv")
+    user_data = pd.read_csv(user_map_file, dtype={"uid": str, "index": int,}, na_values=0)
+    uid_to_index = {k: v for k, v in zip(user_data["uid"].tolist(), user_data["index"].tolist())}
+
+    item_map_file = os.path.join(data_config["path"]["processed"], "item_map.csv")
+    item_to_index = {k: int(v) for k, v in load_dict(
+        item_map_file, sep=",", skip_header=True).items()}
+
+    top_k = [3, 5]
+    ctr = [0, 0]
+    total_row = 0
+    with open(dataset_path) as f:
+        f.readline()
+        for line in tqdm(f):
+            data = line.strip().split("\t")
+            uid, kw, item = data[0], data[3], data[4]
+            if uid not in uid_to_index or item not in item_to_index or kw not in kw_to_item_list:
+                continue
+
+            kw_item_list = kw_to_item_list[kw]
+            candidate_item_inds = [item_to_index[str(i)] for i in kw_item_list if str(i) in item_to_index]
+            clicked_ind = item_to_index[item]
+            if clicked_ind not in candidate_item_inds:
+                continue
+
+            clicked_ind_pos = candidate_item_inds.index(clicked_ind)
+            candidate_item_vector = item_emb[candidate_item_inds]
+            user_vector = user_emb[uid_to_index[uid]]
+            scores = user_vector @ candidate_item_vector.T
+            sorted_scores = np.argsort(scores[0])[::-1]
+            for i, k in enumerate(top_k):
+                top_k_pos = sorted_scores[:k].tolist()
+                if clicked_ind_pos in top_k_pos:
+                    ctr[i] += 1
+            total_row += 1
+
+    print("Total: ", total_row)
+    for i, k in enumerate(top_k):
+        print(f"CTR@{k}: {ctr[i] / total_row:.04f}")
 
 
 def hyperparams_search(config_file, num_trials=50, force=False):
@@ -203,7 +266,7 @@ def hyperparams_search(config_file, num_trials=50, force=False):
             for callback in trainer_config["callbacks"]:
                 callbacks.append(get_callback_fn(callback["type"])(**callback["params"]))
         callbacks.append(TFKerasPruningCallback(trial, "val_binary_accuracy"))
-        
+
         model_config["num_users"] = int(metadata[0][0]) + 1
         model_config["num_items"] = int(metadata[0][1]) + 1
         model = BaseModel.from_params(model_config).build_graph_for_hp(trial)

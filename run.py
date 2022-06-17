@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from email.policy import default
 import os
 import sys
 
@@ -36,6 +37,7 @@ def main(subcommand_overrides={}):
         "train": Train(),
         "hyp": HyperparamsSearch(),
         "eval": Evaluate(),
+        "eval_kw": EvaluateKW(),
         "export": ExportModel(),
         **subcommand_overrides
     }
@@ -140,14 +142,36 @@ class Evaluate(Subcommand):
             "checkpoint_path", type=str,
             help=("path to the model checkpoint"))
         subparser.add_argument(
-            "dataset_path", type=str,
+            "-d", "--dataset_path", type=str, default=None,
             help="path to evaluate dataset")
-        subparser.set_defaults(func=evaluate_model)
+        subparser.set_defaults(func=evaluate)
         return subparser
 
 
-def evaluate_model(args):
-    raise NotImplementedError()
+def evaluate(args):
+    from src.train import test as func
+    return func(args.checkpoint_path, args.dataset_path)
+
+
+class EvaluateKW(Subcommand):
+    def add_subparser(self, name, subparsers):
+        description = "Run evaluation on kw"
+        subparser = subparsers.add_parser(name, description=description,
+                                          help=description)
+
+        subparser.add_argument(
+            "checkpoint_path", type=str,
+            help=("path to the model checkpoint"))
+        subparser.add_argument(
+            "-d", "--dataset_path", type=str, default=None,
+            help="path to evaluate dataset")
+        subparser.set_defaults(func=evaluate_kw)
+        return subparser
+
+
+def evaluate_kw(args):
+    from src.train import test_keyword as func
+    return func(args.checkpoint_path, args.dataset_path)
 
 
 class ExportModel(Subcommand):

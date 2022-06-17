@@ -38,17 +38,19 @@ class MF(BaseModel):
         with tf.device(self.user_emb_devices):
             user_embeddings = keras.layers.Embedding(self.num_users, self.latent_dim,
                                                     embeddings_regularizer=keras.regularizers.L2(self.l2_reg),
-                                                    embeddings_constraint=self.emb_constrains)
+                                                    embeddings_constraint=self.emb_constrains, name="user_emb")
             if self.use_bias:
                 user_biases = keras.layers.Embedding(self.num_users, 1,
-                                                     embeddings_regularizer=keras.regularizers.L2(self.l2_reg))
+                                                     embeddings_regularizer=keras.regularizers.L2(self.l2_reg),\
+                                                     name="user_bias")
         item_embeddings = keras.layers.Embedding(self.num_items, self.latent_dim,
                                                  embeddings_regularizer=keras.regularizers.L2(self.l2_reg),
-                                                 embeddings_constraint=self.emb_constrains)
+                                                 embeddings_constraint=self.emb_constrains, name="item_emb")
         if self.use_bias:
             item_biases = keras.layers.Embedding(self.num_items, 1,
-                                                 embeddings_regularizer=keras.regularizers.L2(self.l2_reg))
-            global_bias = tf.Variable(0.)
+                                                 embeddings_regularizer=keras.regularizers.L2(self.l2_reg),
+                                                 name="item_bias")
+            global_bias = tf.Variable(0., name="global_bias")
 
         user_vectors = user_embeddings(user_ids)
         item_vectors = item_embeddings(item_ids)

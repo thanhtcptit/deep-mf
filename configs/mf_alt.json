@@ -18,7 +18,9 @@
     "trainer": {
         "num_steps": 100000,
         "batch_size": 2560,
-        "mode": "train_jointly",
+        "mode": "alt_training",
+        "num_user_emb_train_step": 5000,
+        "num_item_emb_train_step": 5000,
         "loss_fn": {
             "type": "wbce"
         },

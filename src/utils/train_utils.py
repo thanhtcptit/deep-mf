@@ -53,7 +53,7 @@ def weighted_mse():
     def func(y_true, y_pred):
         pseudo_label = tf.where(y_true == 0, y_true, tf.ones_like(y_true))
         d = tf.square(pseudo_label - y_pred) * (2 * log(y_true + 1, 10) + 1)
-        return tf.reduce_mean(d, axis=-1)
+        return tf.reduce_mean(d)
     return func
 
 
@@ -61,7 +61,7 @@ def weighted_bce():
     def func(y_true, y_pred):
         pseudo_label = tf.where(y_true == 0, y_true, tf.ones_like(y_true))
         d = tf.keras.backend.binary_crossentropy(pseudo_label, y_pred) * (2 * log(y_true + 1, 10) + 1)
-        return tf.reduce_mean(d, axis=-1)
+        return tf.reduce_mean(d)
     return func
 
 

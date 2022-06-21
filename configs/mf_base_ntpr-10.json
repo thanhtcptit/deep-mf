@@ -16,7 +16,7 @@
         "act": "sigmoid"
     },
     "trainer": {
-        "num_steps": 100000,
+        "num_steps": [200000, 250000, 300000],
         "batch_size": 2560,
         "mode": "train_jointly",
         "loss_fn": {
@@ -25,7 +25,7 @@
         "optimizer": {
             "type": "sgd",
             "params": {
-                "learning_rate": 1.5
+                "learning_rate": [1.0, 2.0]
             }
         },
         "display_step": 100,

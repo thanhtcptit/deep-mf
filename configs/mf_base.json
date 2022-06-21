@@ -13,20 +13,24 @@
         "l2_reg": 0.01,
         "unit_norm_emb": false,
         "use_bias": false,
-        "act": "sigmoid"
+        "act": null
     },
     "trainer": {
         "num_steps": 100000,
         "batch_size": 2560,
         "mode": "train_jointly",
         "loss_fn": {
-            "type": "wbce"
+            "type": "wmse"
         },
         "optimizer": {
             "type": "sgd",
             "params": {
                 "learning_rate": 1.5
             }
+        },
+        "grad_clip": {
+            "min_value": -10,
+            "max_value": 10
         },
         "display_step": 100,
         "save_step": 2000,

@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 from src.utils.train_utils import *
 from src.models.base import BaseModel
-from src.utils import Params, save_json, save_txt, load_json, load_dict, load_csv, Logger
+from src.utils import Params, get_current_time_str, load_json, load_dict, load_csv, Logger
 
 tf.get_logger().setLevel('INFO')
 
@@ -33,12 +33,15 @@ def create_tf_dataset(data, batch_size, is_train=False):
 
 
 def evaluate(model, test_dataset, trainer_config):
-    metrics = [
-        keras.metrics.BinaryAccuracy(),
-        keras.metrics.Precision(),
-        keras.metrics.Recall(),
-        keras.metrics.PrecisionAtRecall(recall=0.8)
-    ]
+    if trainer_config["loss_fn"]["type"] in ["bce", "wbce", "cce", "focal"]:
+        metrics = [
+            keras.metrics.BinaryAccuracy(),
+            keras.metrics.Precision(),
+            keras.metrics.Recall(),
+            keras.metrics.PrecisionAtRecall(recall=0.8)
+        ]
+    else:
+        metrics = []
     loss_fn = get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {}))
     mean_loss = keras.metrics.Mean()
     for batch in test_dataset:
@@ -56,7 +59,7 @@ def evaluate(model, test_dataset, trainer_config):
     return results
 
 
-def train(config_path, checkpoint_dir, recover=False, force=False):
+def train(config_path, checkpoint_dir, recover=False, force=False, trial=None):
     if not checkpoint_dir:
         config_name = os.path.splitext(os.path.basename(config_path))[0]
         checkpoint_dir = os.path.join("train_logs", config_name)
@@ -87,13 +90,33 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
 
     model_config["num_users"] = int(metadata[0][0]) + 1
     model_config["num_items"] = int(metadata[0][1]) + 1
-    model = BaseModel.from_params(model_config).build_graph()
+    if trial is None:
+        model = BaseModel.from_params(model_config).build_graph()
+    else:
+        model = BaseModel.from_params(model_config).build_graph_for_hp(trial)
     if recover:
         model.load_weights(weight_dir)
     model.summary()
 
-    optimizer = get_optimizer(trainer_config["optimizer"]["type"])(**trainer_config["optimizer"].get("params", {}))
-    loss_fn = get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {}))
+    if trial is None:
+        optimizer = get_optimizer(trainer_config["optimizer"]["type"])(**trainer_config["optimizer"].get("params", {}))
+        loss_fn = get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {}))
+        num_steps = trainer_config["num_steps"]
+    else:
+        if isinstance(trainer_config["optimizer"]["type"], list):
+            trainer_config["optimizer"]["type"] = trial.suggest_categorical("optimizer", trainer_config["optimizer"]["type"])
+        optimizer_params = trainer_config["optimizer"].get("params", {})
+        if isinstance(optimizer_params["learning_rate"], list):
+            optimizer_params["learning_rate"] = trial.suggest_float(
+                "learning_rate", trainer_config["optimizer"]["params"]["learning_rate"][0],
+                trainer_config["optimizer"]["params"]["learning_rate"][1], log=True)  
+        optimizer = get_optimizer(trainer_config["optimizer"]["type"])(**optimizer_params)
+
+        if isinstance(trainer_config["loss_fn"]["type"], list):
+            trainer_config["loss_fn"]["type"] = trial.suggest_categorical("loss_fn", trainer_config["loss_fn"]["type"])
+        loss_fn = get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {}))
+        if isinstance(trainer_config["num_steps"], list):
+            trainer_config["num_steps"] = trial.suggest_categorical("num_steps", trainer_config["num_steps"])
 
     @tf.function
     def train_step(x, y, train_user_emb=True, train_item_emb=True):
@@ -124,22 +147,23 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
     pbar.set_description(("%10.4g" * (1 + len(results))) % (0, *results))
 
     if trainer_config["mode"] == "alt_training":
-        flag = 0
+        alt_training_flag = 0
         emb_train_step = [trainer_config["num_user_emb_train_step"], trainer_config["num_item_emb_train_step"]]
-        swap = emb_train_step[0]
+        swap_training = emb_train_step[0]
     else:
-        flag = -1
+        alt_training_flag = -1
 
     best_val = 0
     for step, batch in pbar:
         if step > trainer_config["num_steps"]:
             pbar.close()
             break
-        if flag != -1:
-            if step > swap:
-                flag = 1 - flag
-                swap += emb_train_step[flag]
-            loss_value = train_step(batch[0], batch[1], train_user_emb=1 - flag, train_item_emb=flag)
+        if alt_training_flag != -1:
+            if step > swap_training:
+                alt_training_flag = 1 - alt_training_flag
+                swap_training += emb_train_step[alt_training_flag]
+            loss_value = train_step(batch[0], batch[1], train_user_emb=1 - alt_training_flag,
+                                    train_item_emb=alt_training_flag)
         else:
             loss_value = train_step(batch[0], batch[1])
         if step % trainer_config["display_step"] == 0:
@@ -152,12 +176,11 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
             results = evaluate(model, val_dataset, trainer_config)
             pbar.set_description(("%10.4g" * (1 + len(results))) % (loss_value, *results))
             logger.log(("\n" + "%10.4g" * (2 + len(results))) % (step + 1, loss_value, *results))
-            if results[-1] > best_val:
-                best_val = results[-1]
+            if results[0] > best_val:
+                best_val = results[0]
                 model.save_weights(os.path.join(weight_dir, "best.ckpt"))
 
-    results = evaluate(model, val_dataset, trainer_config)
-    return results[0]
+    return best_val
 
 
 def test(checkpoint_dir, dataset_path):
@@ -170,7 +193,7 @@ def test(checkpoint_dir, dataset_path):
         dataset_path = os.path.join(data_config["path"]["processed"], "val.csv")
     test_df = pd.read_csv(dataset_path)
     test_dataset = create_tf_dataset(test_df, trainer_config["batch_size"], is_train=True)
-    
+
     metadata = load_csv(os.path.join(data_config["path"]["processed"], "metadata.csv"), skip_header=True)
     model_config["num_users"] = int(metadata[0][0]) + 1
     model_config["num_items"] = int(metadata[0][1]) + 1
@@ -229,7 +252,7 @@ def test_keyword(checkpoint_dir, dataset_path):
 
             clicked_ind_pos = candidate_item_inds.index(clicked_ind)
             candidate_item_vector = item_emb[candidate_item_inds]
-            user_vector = user_emb[uid_to_index[uid]]
+            user_vector = np.expand_dims(user_emb[uid_to_index[uid]], axis=0)
             scores = user_vector @ candidate_item_vector.T
             sorted_scores = np.argsort(scores[0])[::-1]
             for i, k in enumerate(top_k):
@@ -241,54 +264,25 @@ def test_keyword(checkpoint_dir, dataset_path):
     print("Total: ", total_row)
     for i, k in enumerate(top_k):
         print(f"CTR@{k}: {ctr[i] / total_row:.04f}")
+    return ctr[0] / total_row
 
 
-def hyperparams_search(config_file, num_trials=50, force=False):
+def hyperparams_search(config_file, dataset_path, num_trials=50, force=False):
     import optuna
     from optuna.integration import TFKerasPruningCallback
 
     def objective(trial):
         tf.keras.backend.clear_session()
 
-        config = Params.from_file(config_file)
-        data_config = config["data"]
-        model_config = config["model"]
-        trainer_config = config["trainer"]
+        config_name = os.path.splitext(os.path.basename(config_file))[0]
+        timestamp = get_current_time_str()
+        checkpoint_dir = f"/tmp/{config_name}_{timestamp}"
+        best_val = train(config_file, checkpoint_dir, force=force, trial=trial)
+        if dataset_path:
+            best_val = test_keyword(checkpoint_dir, dataset_path)
+        return best_val
 
-        train_file = os.path.join(data_config["path"]["processed"], "train.csv")
-        val_file = os.path.join(data_config["path"]["processed"], "val.csv")
-        metadata = load_csv(os.path.join(data_config["path"]["processed"], "metadata.csv"), skip_header=True)
-
-        train_dataset = create_tf_dataset(train_file, trainer_config["batch_size"], is_train=True)
-        val_dataset = create_tf_dataset(val_file, trainer_config["batch_size"])
-        callbacks = []
-        if "callbacks" in trainer_config:
-            for callback in trainer_config["callbacks"]:
-                callbacks.append(get_callback_fn(callback["type"])(**callback["params"]))
-        callbacks.append(TFKerasPruningCallback(trial, "val_binary_accuracy"))
-
-        model_config["num_users"] = int(metadata[0][0]) + 1
-        model_config["num_items"] = int(metadata[0][1]) + 1
-        model = BaseModel.from_params(model_config).build_graph_for_hp(trial)
-
-        optimizer = trial.suggest_categorical("optimizer", trainer_config["optimizer"]["type"])
-        lr = trial.suggest_float("lr", trainer_config["optimizer"]["params"]["learning_rate"][0],
-                                 trainer_config["optimizer"]["params"]["learning_rate"][1], log=True)
-        model.compile(
-            optimizer=get_optimizer(optimizer)(learning_rate=lr),
-            loss=get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {})),
-            metrics=[tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(),
-                     tf.keras.metrics.Recall(), tf.keras.metrics.PrecisionAtRecall(recall=0.8)])
-        model.summary()
-
-        model.fit(
-            train_dataset, validation_data=val_dataset, epochs=trainer_config["num_epochs"],
-            callbacks=callbacks)
-
-        metrics = model.evaluate(val_dataset)
-        return metrics[1]
-
-    study = optuna.create_study(study_name="bert", direction="maximize")
+    study = optuna.create_study(study_name="mf", direction="maximize")
     study.optimize(objective, n_trials=num_trials, gc_after_trial=True,
                    catch=(tf.errors.InvalidArgumentError,))
     print("Number of finished trials: ", len(study.trials))

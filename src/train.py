@@ -7,9 +7,11 @@ import collections
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+from src.utils.file_utils import save_json
 import tensorflow.keras as keras
 
 from tqdm import tqdm
+from pprint import pprint
 
 from src.utils.train_utils import *
 from src.models.base import BaseModel
@@ -59,7 +61,13 @@ def evaluate(model, test_dataset, trainer_config):
     return results
 
 
-def train(config_path, checkpoint_dir, recover=False, force=False, trial=None):
+def train(config_path, checkpoint_dir, recover=False, force=False):
+    config = Params.from_file(config_path)
+    data_config = config["data"]
+    model_config = config["model"]
+    trainer_config = config["trainer"]
+    pprint(config.as_dict())
+
     if not checkpoint_dir:
         config_name = os.path.splitext(os.path.basename(config_path))[0]
         checkpoint_dir = os.path.join("train_logs", config_name)
@@ -70,16 +78,12 @@ def train(config_path, checkpoint_dir, recover=False, force=False, trial=None):
             raise ValueError(f"{checkpoint_dir} already existed")
     weight_dir = os.path.join(checkpoint_dir, "checkpoints")
     os.makedirs(weight_dir, exist_ok=True)
-    shutil.copyfile(config_path, os.path.join(checkpoint_dir, "config.json"))
+    shutil.copy(config_path, os.path.join(checkpoint_dir, "config.json"))
+    print("Model checkpoint: ", checkpoint_dir)
 
     log_file = os.path.join(checkpoint_dir, "log.txt")
     logger = Logger(log_file, stdout=False)
     logger.log(f"\n=======================================\n")
-
-    config = Params.from_file(config_path)
-    data_config = config["data"]
-    model_config = config["model"]
-    trainer_config = config["trainer"]
 
     train_file = os.path.join(data_config["path"]["processed"], "train.csv")
     val_file = os.path.join(data_config["path"]["processed"], "val.csv")
@@ -90,33 +94,13 @@ def train(config_path, checkpoint_dir, recover=False, force=False, trial=None):
 
     model_config["num_users"] = int(metadata[0][0]) + 1
     model_config["num_items"] = int(metadata[0][1]) + 1
-    if trial is None:
-        model = BaseModel.from_params(model_config).build_graph()
-    else:
-        model = BaseModel.from_params(model_config).build_graph_for_hp(trial)
+    model = BaseModel.from_params(model_config).build_graph()
     if recover:
         model.load_weights(weight_dir)
     model.summary()
 
-    if trial is None:
-        optimizer = get_optimizer(trainer_config["optimizer"]["type"])(**trainer_config["optimizer"].get("params", {}))
-        loss_fn = get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {}))
-        num_steps = trainer_config["num_steps"]
-    else:
-        if isinstance(trainer_config["optimizer"]["type"], list):
-            trainer_config["optimizer"]["type"] = trial.suggest_categorical("optimizer", trainer_config["optimizer"]["type"])
-        optimizer_params = trainer_config["optimizer"].get("params", {})
-        if isinstance(optimizer_params["learning_rate"], list):
-            optimizer_params["learning_rate"] = trial.suggest_float(
-                "learning_rate", trainer_config["optimizer"]["params"]["learning_rate"][0],
-                trainer_config["optimizer"]["params"]["learning_rate"][1], log=True)  
-        optimizer = get_optimizer(trainer_config["optimizer"]["type"])(**optimizer_params)
-
-        if isinstance(trainer_config["loss_fn"]["type"], list):
-            trainer_config["loss_fn"]["type"] = trial.suggest_categorical("loss_fn", trainer_config["loss_fn"]["type"])
-        loss_fn = get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {}))
-        if isinstance(trainer_config["num_steps"], list):
-            trainer_config["num_steps"] = trial.suggest_categorical("num_steps", trainer_config["num_steps"])
+    optimizer = get_optimizer(trainer_config["optimizer"]["type"])(**trainer_config["optimizer"].get("params", {}))
+    loss_fn = get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {}))
 
     @tf.function
     def train_step(x, y, train_user_emb=True, train_item_emb=True):
@@ -153,7 +137,7 @@ def train(config_path, checkpoint_dir, recover=False, force=False, trial=None):
     else:
         alt_training_flag = -1
 
-    best_val = 0
+    best_loss = float("inf")
     for step, batch in pbar:
         if step > trainer_config["num_steps"]:
             pbar.close()
@@ -176,11 +160,11 @@ def train(config_path, checkpoint_dir, recover=False, force=False, trial=None):
             results = evaluate(model, val_dataset, trainer_config)
             pbar.set_description(("%10.4g" * (1 + len(results))) % (loss_value, *results))
             logger.log(("\n" + "%10.4g" * (2 + len(results))) % (step + 1, loss_value, *results))
-            if results[0] > best_val:
-                best_val = results[0]
+            if best_loss > results[0]:
+                best_loss = results[0]
                 model.save_weights(os.path.join(weight_dir, "best.ckpt"))
 
-    return best_val
+    return -best_loss
 
 
 def test(checkpoint_dir, dataset_path):
@@ -226,7 +210,7 @@ def test_keyword(checkpoint_dir, dataset_path):
 
     kw_to_item_list = load_json(os.path.join(data_config["path"]["processed"], "kw_map.json"))
     user_map_file = os.path.join(data_config["path"]["processed"], "user_map.csv")
-    user_data = pd.read_csv(user_map_file, dtype={"uid": str, "index": int,}, na_values=0)
+    user_data = pd.read_csv(user_map_file, dtype={"uid": str, "index": int}, na_values=0)
     uid_to_index = {k: v for k, v in zip(user_data["uid"].tolist(), user_data["index"].tolist())}
 
     item_map_file = os.path.join(data_config["path"]["processed"], "item_map.csv")
@@ -236,13 +220,17 @@ def test_keyword(checkpoint_dir, dataset_path):
     top_k = [3, 5]
     ctr = [0, 0]
     total_row = 0
+    count_na = 0
+    user_list = []
     with open(dataset_path) as f:
         f.readline()
         for line in tqdm(f):
             data = line.strip().split("\t")
             uid, kw, item = data[0], data[3], data[4]
-            if uid not in uid_to_index or item not in item_to_index or kw not in kw_to_item_list:
+            if uid not in uid_to_index or item not in item_to_index or kw not in kw_to_item_list:  
+                count_na += 1
                 continue
+            user_list.append(uid)
 
             kw_item_list = kw_to_item_list[kw]
             candidate_item_inds = [item_to_index[str(i)] for i in kw_item_list if str(i) in item_to_index]
@@ -262,6 +250,7 @@ def test_keyword(checkpoint_dir, dataset_path):
             total_row += 1
 
     print("Total: ", total_row)
+    print("NA: ", count_na)
     for i, k in enumerate(top_k):
         print(f"CTR@{k}: {ctr[i] / total_row:.04f}")
     return ctr[0] / total_row
@@ -273,11 +262,30 @@ def hyperparams_search(config_file, dataset_path, num_trials=50, force=False):
 
     def objective(trial):
         tf.keras.backend.clear_session()
-
+        
         config_name = os.path.splitext(os.path.basename(config_file))[0]
-        timestamp = get_current_time_str()
-        checkpoint_dir = f"/tmp/{config_name}_{timestamp}"
-        best_val = train(config_file, checkpoint_dir, force=force, trial=trial)
+        config = load_json(config_file)
+        hyp_config = config["hyp"]
+        for k, v in hyp_config.items():
+            k_list = k.split(".")
+            d = config
+            for i in range(len(k_list) - 1):
+                d = d[k_list[i]]
+            if v["type"] == "int":
+                val = trial.suggest_int(k, v["range"][0], v["range"][1])
+            elif v["type"] == "float":
+                val = trial.suggest_float(k, v["range"][0], v["range"][1])
+            elif v["type"] == "categorical":
+                val = trial.suggest_categorical(k, v["values"])
+            d[k_list[-1]] = val
+            config_name += f"_{k_list[-1]}-{val}"
+
+        config.pop("hyp")
+        checkpoint_dir = f"/tmp/{config_name}"
+        trial_config_file = os.path.join(f"/tmp/hyp_{get_current_time_str()}.json")
+        save_json(trial_config_file, config)
+
+        best_val = train(trial_config_file, checkpoint_dir, force=force)
         if dataset_path:
             best_val = test_keyword(checkpoint_dir, dataset_path)
         return best_val

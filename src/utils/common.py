@@ -11,9 +11,9 @@ def gen_sha256(data):
     return sha256(str(data).encode()).hexdigest()
 
 
-def get_current_time_str():
+def get_current_time_str(format="%Y%m%d_%H%M%S"):
     now = datetime.datetime.now()
-    return now.isoformat()
+    return now.strftime(format)
 
 
 def multi_makedirs(dirs, exist_ok=False):

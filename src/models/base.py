@@ -10,6 +10,4 @@ class BaseModel(Registrable):
 
     def build_graph(self):
         raise NotImplementedError()
-    
-    def build_graph_for_hp(self, trial):
-        raise NotImplementedError()
+

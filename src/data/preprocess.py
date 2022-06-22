@@ -12,13 +12,18 @@ from src.utils import load_json
 def add_negative_samples(df, item_set, neg_to_pos_ratio):
     user_positive_examples = df[["uid", "item"]].groupby("uid").agg(list).reset_index().values.tolist()
     user_positive_examples = {k[0]: k[1] for k in user_positive_examples}
-    for user_id in tqdm(user_positive_examples.keys()):
+    neg_examples = []
+    for i, user_id in tqdm(enumerate(user_positive_examples.keys())):
         num_neg_samples = int(np.ceil(neg_to_pos_ratio * len(user_positive_examples[user_id])))
         neg_candidates = list(item_set - set(user_positive_examples[user_id]))
         if num_neg_samples > len(neg_candidates):
             num_neg_samples = len(neg_candidates)
         neg_items = np.random.choice(neg_candidates, num_neg_samples, replace=False)
-        neg_examples = [{"uid": user_id, "item": j, "label": 0} for j in neg_items]
+        neg_examples.extend([{"uid": user_id, "item": j, "label": 0} for j in neg_items])
+        if (i + 1) % 10000 == 0:
+            df = df.append(neg_examples, ignore_index=True)
+            neg_examples = []
+    if len(neg_examples):
         df = df.append(neg_examples, ignore_index=True)
     return df
 
@@ -78,5 +83,5 @@ def main(config_path, force):
     train_df = train_df.sample(frac=1, random_state=442).reset_index(drop=True)
     train_df.to_csv(os.path.join(processed_data_dir, "train.csv"), index=False)
 
-    val_df = add_negative_samples(val_df, item_set, data_config["neg_to_pos_ratio"])
+    val_df = add_negative_samples(val_df, item_set, 1)
     val_df.to_csv(os.path.join(processed_data_dir, "val.csv"), index=False)

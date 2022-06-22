@@ -1,0 +1,53 @@
+{
+    "seed": 442,
+    "data": {
+        "path": {
+            "raw": "data/raw/100k",
+            "processed": "data/processed/100k_ntpr-10"
+        },
+        "neg_to_pos_ratio": 10
+    },
+    "model": {
+        "type": "mf",
+        "latent_dim": 32,
+        "l2_reg": 0.01,
+        "unit_norm_emb": false,
+        "use_bias": false,
+        "act": "sigmoid"
+    },
+    "trainer": {
+        "num_steps": 300000,
+        "batch_size": 2560,
+        "mode": "train_jointly",
+        "loss_fn": {
+            "type": "wbce"
+        },
+        "optimizer": {
+            "type": "sgd",
+            "params": {
+                "learning_rate": 1.5
+            }
+        },
+        "display_step": 100,
+        "save_step": 5000,
+        "validate_step": 5000
+    },
+    "hyp": {
+        "model.l2_reg": {
+            "type": "float",
+            "range": [0.001, 0.1]
+        },
+        "model.unit_norm_emb": {
+            "type": "categorical",
+            "values": [0, 1]
+        },
+        "trainer.num_steps": {
+            "type": "categorical",
+            "values": [100000, 150000, 200000]
+        },
+        "trainer.optimizer.params.learning_rate": {
+            "type": "float",
+            "range": [1.0, 3.0]
+        }
+    }
+}

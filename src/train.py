@@ -274,7 +274,7 @@ def hyperparams_search(config_file, dataset_path, num_trials=50, force=False):
             if v["type"] == "int":
                 val = trial.suggest_int(k, v["range"][0], v["range"][1])
             elif v["type"] == "float":
-                val = trial.suggest_float(k, v["range"][0], v["range"][1])
+                val = trial.suggest_float(k, v["range"][0], v["range"][1], log=v.get("log", False))
             elif v["type"] == "categorical":
                 val = trial.suggest_categorical(k, v["values"])
             d[k_list[-1]] = val

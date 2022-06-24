@@ -47,7 +47,8 @@
         },
         "trainer.optimizer.params.learning_rate": {
             "type": "float",
-            "range": [1.0, 3.0]
+            "range": [1.0, 3.0],
+            "log": true
         }
     }
 }

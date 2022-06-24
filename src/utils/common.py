@@ -1,6 +1,5 @@
 import os
 import sys
-import logging
 import datetime
 import subprocess
 
@@ -30,16 +29,6 @@ def get_files_multilevel(root, pattern):
             if pattern in f:
                 list_files.append(os.path.join(root, f))
     return list_files
-
-
-def get_file_logger(file_path):
-    logging.basicConfig(
-        level=logging.INFO,
-        handlers=[
-            logging.FileHandler(file_path),
-            logging.StreamHandler(sys.stdout)
-        ])
-    return logging.getLogger()
 
 
 def run_command(command):

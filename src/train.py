@@ -1,21 +1,18 @@
 import os
-import glob
-import time
 import shutil
-import collections
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from src.utils.file_utils import save_json
 import tensorflow.keras as keras
 
 from tqdm import tqdm
 from pprint import pprint
 
+from src.utils.loss_fn import *
 from src.utils.train_utils import *
 from src.models.base import BaseModel
-from src.utils import Params, get_current_time_str, load_json, load_dict, load_csv, Logger
+from src.utils import Params, get_current_time_str, save_json, load_json, load_dict, load_csv, Logger
 
 tf.get_logger().setLevel('INFO')
 

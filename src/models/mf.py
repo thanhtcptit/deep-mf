@@ -61,4 +61,3 @@ class MF(BaseModel):
         if self.act:
             scores = getattr(tf.math, self.act)(scores)
         return keras.Model(inputs=[user_ids, item_ids], outputs=scores)
-

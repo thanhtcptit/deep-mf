@@ -12,7 +12,7 @@
         "latent_dim": 32,
         "l2_reg": 0.01,
         "unit_norm_emb": false,
-        "use_bias": true,
+        "use_bias": false,
         "act": "sigmoid"
     },
     "trainer": {
@@ -33,6 +33,18 @@
         "validate_step": 5000
     },
     "hyp": {
-
+        "trainer.loss_fn.type": {
+            "type": "categorical",
+            "values": ["mse", "wbce", "wmse"]
+        },
+        "trainer.optimizer.params.learning_rate": {
+            "type": "float",
+            "range": [0.5, 3.0],
+            "log": true
+        },
+        "trainer.optimizer.type": {
+            "type": "categorical",
+            "values": ["sgd", "adam"]
+        }
     }
 }

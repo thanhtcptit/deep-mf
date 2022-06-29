@@ -20,13 +20,12 @@
         "batch_size": 2560,
         "mode": "train_jointly",
         "loss_fn": {
-            "type": "wbce"
+            "type": "wbce",
+            "multiply": 2
         },
         "optimizer": {
             "type": "sgd",
-            "params": {
-                "learning_rate": 2.5
-            }
+            "learning_rate": 2.5
         },
         "display_step": 100,
         "save_step": 5000,

@@ -1,3 +1,5 @@
+import copy
+
 import tensorflow as tf
 
 
@@ -29,20 +31,24 @@ def get_lr_scheduler_callback(name, params):
     return tf.keras.callbacks.LearningRateScheduler(lr_scheduler_dict[name](**params))
 
 
-def get_optimizer(name):
+def build_optimizer(config):
+    config_copy = copy.deepcopy(config)
+
     optimizer_dict = {
         "sgd": tf.keras.optimizers.SGD,
         "adam": tf.keras.optimizers.Adam,
         "rms": tf.keras.optimizers.RMSprop
     }
-    return optimizer_dict[name]
+    return optimizer_dict[config_copy.pop("type")](**config_copy)
 
 
-def get_callback_fn(name):
+def build_callback_fn(config):
+    config_copy = copy.deepcopy(config)
+
     callback_fn_dict = {
         "early_stopping": tf.keras.callbacks.EarlyStopping,
         "model_checkpoint": tf.keras.callbacks.ModelCheckpoint,
         "logging": tf.keras.callbacks.CSVLogger,
         "lr_scheduler": get_lr_scheduler_callback
     }
-    return callback_fn_dict[name]
+    return callback_fn_dict[config_copy.pop("type")](**config_copy)

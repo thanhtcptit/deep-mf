@@ -24,9 +24,7 @@
         },
         "optimizer": {
             "type": "sgd",
-            "params": {
-                "learning_rate": 1.5
-            }
+            "learning_rate": 1.5
         },
         "grad_clip": {
             "min_value": -10,

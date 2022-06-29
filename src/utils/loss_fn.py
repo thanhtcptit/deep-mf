@@ -9,18 +9,18 @@ def log(x, base=E):
     return numerator / denominator
 
 
-def weighted_mse():
+def weighted_mse(multiply=1):
     def func(y_true, y_pred):
         pseudo_label = tf.where(y_true <= 0, tf.zeros_like(y_true), tf.ones_like(y_true))
-        loss = tf.math.square(pseudo_label - y_pred) * (2 * log(y_true + 1, 10) + 1)
+        loss = tf.math.square(pseudo_label - y_pred) * (multiply * log(y_true + 1) + 1)
         return tf.math.reduce_mean(loss)
     return func
 
 
-def weighted_bce():
+def weighted_bce(multiply=1):
     def func(y_true, y_pred):
         pseudo_label = tf.where(y_true <= 0, tf.zeros_like(y_true), tf.ones_like(y_true))
-        loss = tf.keras.backend.binary_crossentropy(pseudo_label, y_pred) * (2 * log(y_true + 1, 10) + 1)
+        loss = tf.keras.backend.binary_crossentropy(pseudo_label, y_pred) * (multiply * log(y_true + 1) + 1)
         return tf.math.reduce_mean(loss)
     return func
 
@@ -63,14 +63,32 @@ def lossless_triplet_loss(N, beta, epsilon=1e-8):
 
 def focal_loss(gamma=2.0, alpha=0.2):
     def focal_loss_fn(y_true, y_pred):
-        pt_1 = tf.where(tf.equal(y_true, 1), y_pred, tf.ones_like(y_pred))
-        pt_0 = tf.where(tf.equal(y_true, 0), y_pred, tf.zeros_like(y_pred))
+        pt_1 = tf.where(y_true >= 1, y_pred, tf.ones_like(y_pred))
+        pt_0 = tf.where(y_true <= 0, y_pred, tf.zeros_like(y_pred))
         return -tf.math.reduce_mean(alpha * tf.math.pow(1. - pt_1, gamma) * tf.math.log(pt_1)) \
             - tf.math.reduce_mean((1 - alpha) * tf.math.pow(pt_0, gamma) * tf.math.log(1. - pt_0))
     return focal_loss_fn
 
 
-def get_loss_fn(name):
+def weighted_focal_loss(gamma=2.0, alpha=0.2, multiply=1):
+    def focal_loss_fn(y_true, y_pred):
+        pt_1 = tf.where(y_true >= 1, y_pred, tf.ones_like(y_pred))
+        pt_0 = tf.where(y_true <= 0, y_pred, tf.zeros_like(y_pred))
+        w_ = log(tf.where(y_true >= 1, y_true, tf.ones_like(y_true))) + 1
+        return -tf.math.reduce_mean(alpha * tf.math.pow(1. - pt_1, gamma) * tf.math.log(pt_1) * (multiply * w_ + 1)) \
+            - tf.math.reduce_mean((1 - alpha) * tf.math.pow(pt_0, gamma) * tf.math.log(1. - pt_0) * (multiply * w_ + 1))
+    return focal_loss_fn
+
+
+CLASSIFICATION_LOSSES = ["bce", "wbce", "cce", "focal", "wfocal"]
+REGRESSION_LOSS = ["mse", "wmse"]
+METRIC_LOSS = ["pairwise", "triplet", "lossless_triplet"]
+
+def build_loss_fn(config):
+    import copy
+    
+    config_copy = copy.deepcopy(config)
+
     loss_fn_dict = {
         "bce": tf.keras.losses.BinaryCrossentropy,
         "wbce": weighted_bce,
@@ -78,8 +96,9 @@ def get_loss_fn(name):
         "mse": tf.keras.losses.MeanSquaredError,
         "wmse": weighted_mse,
         "focal": focal_loss,
+        "wfocal": weighted_focal_loss,
         "pairwise": pairwise_loss,
         "triplet": triplet_loss,
         "lossless_triplet": lossless_triplet_loss
     }
-    return loss_fn_dict[name]
+    return loss_fn_dict[config_copy.pop("type")](**config_copy)

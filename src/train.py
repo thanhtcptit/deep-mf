@@ -32,16 +32,16 @@ def create_tf_dataset(data, batch_size, is_train=False):
 
 
 def evaluate(model, test_dataset, trainer_config):
-    if trainer_config["loss_fn"]["type"] in ["bce", "wbce", "cce", "focal"]:
-        metrics = [
+    metrics = []
+    if trainer_config["loss_fn"]["type"] in CLASSIFICATION_LOSSES:
+        metrics += [
             keras.metrics.BinaryAccuracy(),
             keras.metrics.Precision(),
             keras.metrics.Recall(),
             keras.metrics.PrecisionAtRecall(recall=0.8)
         ]
-    else:
-        metrics = []
-    loss_fn = get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {}))
+
+    loss_fn = build_loss_fn(trainer_config["loss_fn"])
     mean_loss = keras.metrics.Mean()
     for batch in test_dataset:
         preds = model(batch[0], training=False)
@@ -96,8 +96,8 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
         model.load_weights(weight_dir)
     model.summary()
 
-    optimizer = get_optimizer(trainer_config["optimizer"]["type"])(**trainer_config["optimizer"].get("params", {}))
-    loss_fn = get_loss_fn(trainer_config["loss_fn"]["type"])(**trainer_config["loss_fn"].get("params", {}))
+    loss_fn = build_loss_fn(trainer_config["loss_fn"])
+    optimizer = build_optimizer(trainer_config["optimizer"])
 
     @tf.function
     def train_step(x, y, train_user_emb=True, train_item_emb=True):
@@ -180,9 +180,16 @@ def test(checkpoint_dir, dataset_path):
     model_config["num_items"] = int(metadata[0][1]) + 1
     model = BaseModel.from_params(model_config).build_graph()
     model.load_weights(os.path.join(checkpoint_dir, "checkpoints/best.ckpt"))
-    model.compile(
-        metrics=[tf.keras.metrics.BinaryAccuracy(), tf.keras.metrics.Precision(),
-                 tf.keras.metrics.Recall(), tf.keras.metrics.PrecisionAtRecall(recall=0.8)])
+
+    metrics = []
+    if trainer_config["loss_fn"]["type"] in CLASSIFICATION_LOSSES:
+        metrics += [
+            keras.metrics.BinaryAccuracy(),
+            keras.metrics.Precision(),
+            keras.metrics.Recall(),
+            keras.metrics.PrecisionAtRecall(recall=0.8)
+        ]
+    model.compile(metrics=metrics)
     metrics = model.evaluate(test_dataset)
     print(metrics)
     return metrics
@@ -259,7 +266,7 @@ def hyperparams_search(config_file, dataset_path, num_trials=50, force=False):
 
     def objective(trial):
         tf.keras.backend.clear_session()
-        
+
         config_name = os.path.splitext(os.path.basename(config_file))[0]
         config = load_json(config_file)
         hyp_config = config["hyp"]

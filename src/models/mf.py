@@ -36,7 +36,7 @@ class MF(BaseModel):
             user_embeddings = keras.layers.Embedding(self.num_users, self.latent_dim,
                                                     embeddings_regularizer=keras.regularizers.L2(self.l2_reg),
                                                     name="user_emb")
-                
+
             if self.use_bias:
                 user_biases = keras.layers.Embedding(self.num_users, 1,
                                                      embeddings_regularizer=keras.regularizers.L2(self.l2_reg),\

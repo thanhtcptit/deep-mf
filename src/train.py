@@ -9,10 +9,8 @@ import tensorflow.keras as keras
 from tqdm import tqdm
 from pprint import pprint
 
-from src.utils.loss_fn import *
-from src.utils.train_utils import *
+from src.utils import *
 from src.models.base import BaseModel
-from src.utils import Params, get_current_time_str, save_json, load_json, load_dict, load_csv, Logger
 
 tf.get_logger().setLevel('INFO')
 
@@ -58,16 +56,17 @@ def evaluate(model, test_dataset, trainer_config):
     return results
 
 
-def train(config_path, checkpoint_dir, recover=False, force=False):
+def train(config_path, dataset_path, checkpoint_dir, recover=False, force=False):
     config = Params.from_file(config_path)
-    data_config = config["data"]
+    config["dataset_path"] = dataset_path
     model_config = config["model"]
     trainer_config = config["trainer"]
     pprint(config.as_dict())
 
     if not checkpoint_dir:
+        dataset_name = get_basename(dataset_path)
         config_name = os.path.splitext(os.path.basename(config_path))[0]
-        checkpoint_dir = os.path.join("train_logs", config_name)
+        checkpoint_dir = os.path.join("train_logs", dataset_name, config_name)
     if os.path.exists(checkpoint_dir):
         if force:
             shutil.rmtree(checkpoint_dir)
@@ -75,16 +74,16 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
             raise ValueError(f"{checkpoint_dir} already existed")
     weight_dir = os.path.join(checkpoint_dir, "checkpoints")
     os.makedirs(weight_dir, exist_ok=True)
-    shutil.copy(config_path, os.path.join(checkpoint_dir, "config.json"))
+    save_json(os.path.join(checkpoint_dir, "config.json"), config.as_dict())
     print("Model checkpoint: ", checkpoint_dir)
 
     log_file = os.path.join(checkpoint_dir, "log.txt")
     logger = Logger(log_file, stdout=False)
     logger.log(f"\n=======================================\n")
 
-    train_file = os.path.join(data_config["path"]["processed"], "train.csv")
-    val_file = os.path.join(data_config["path"]["processed"], "val.csv")
-    metadata = load_csv(os.path.join(data_config["path"]["processed"], "metadata.csv"), skip_header=True)
+    train_file = os.path.join(dataset_path, "train.csv")
+    val_file = os.path.join(dataset_path, "val.csv")
+    metadata = load_csv(os.path.join(dataset_path, "metadata.csv"), skip_header=True)
 
     train_dataset = create_tf_dataset(train_file, trainer_config["batch_size"], is_train=True)
     val_dataset = create_tf_dataset(val_file, trainer_config["batch_size"])
@@ -164,18 +163,18 @@ def train(config_path, checkpoint_dir, recover=False, force=False):
     return -best_loss
 
 
-def test(checkpoint_dir, dataset_path):
+def test(checkpoint_dir, test_dataset_path):
     config = Params.from_file(os.path.join(checkpoint_dir, "config.json"))
-    data_config = config["data"]
+    dataset_path = config["dataset_path"]
     model_config = config["model"]
     trainer_config = config["trainer"]
 
-    if not dataset_path:
-        dataset_path = os.path.join(data_config["path"]["processed"], "val.csv")
-    test_df = pd.read_csv(dataset_path)
+    if not test_dataset_path:
+        test_dataset_path = os.path.join(dataset_path, "val.csv")
+    test_df = pd.read_csv(test_dataset_path)
     test_dataset = create_tf_dataset(test_df, trainer_config["batch_size"], is_train=True)
 
-    metadata = load_csv(os.path.join(data_config["path"]["processed"], "metadata.csv"), skip_header=True)
+    metadata = load_csv(os.path.join(dataset_path, "metadata.csv"), skip_header=True)
     model_config["num_users"] = int(metadata[0][0]) + 1
     model_config["num_items"] = int(metadata[0][1]) + 1
     model = BaseModel.from_params(model_config).build_graph()
@@ -195,12 +194,12 @@ def test(checkpoint_dir, dataset_path):
     return metrics
 
 
-def test_keyword(checkpoint_dir, dataset_path):
+def test_keyword(checkpoint_dir, test_dataset_path):
     config = Params.from_file(os.path.join(checkpoint_dir, "config.json"))
-    data_config = config["data"]
+    dataset_path = config["dataset_path"]
     model_config = config["model"]
 
-    metadata = load_csv(os.path.join(data_config["path"]["processed"], "metadata.csv"), skip_header=True)
+    metadata = load_csv(os.path.join(dataset_path, "metadata.csv"), skip_header=True)
     model_config["num_users"] = int(metadata[0][0]) + 1
     model_config["num_items"] = int(metadata[0][1]) + 1
     model = BaseModel.from_params(model_config).build_graph()
@@ -209,15 +208,15 @@ def test_keyword(checkpoint_dir, dataset_path):
     user_emb = model.layers[2].weights[0].numpy()
     item_emb = model.layers[3].weights[0].numpy()
 
-    if not dataset_path:
-        dataset_path = os.path.join(data_config["path"]["processed"], "val.csv")
+    if not test_dataset_path:
+        test_dataset_path = os.path.join(dataset_path, "val.csv")
 
-    kw_to_item_list = load_json(os.path.join(data_config["path"]["processed"], "kw_map.json"))
-    user_map_file = os.path.join(data_config["path"]["processed"], "user_map.csv")
+    kw_to_item_list = load_json(os.path.join(dataset_path, "kw_map.json"))
+    user_map_file = os.path.join(dataset_path, "user_map.csv")
     user_data = pd.read_csv(user_map_file, dtype={"uid": str, "index": int}, na_values=0)
     uid_to_index = {k: v for k, v in zip(user_data["uid"].tolist(), user_data["index"].tolist())}
 
-    item_map_file = os.path.join(data_config["path"]["processed"], "item_map.csv")
+    item_map_file = os.path.join(dataset_path, "item_map.csv")
     item_to_index = {k: int(v) for k, v in load_dict(
         item_map_file, sep=",", skip_header=True).items()}
 
@@ -226,7 +225,7 @@ def test_keyword(checkpoint_dir, dataset_path):
     total_row = 0
     count_na = 0
     user_list = []
-    with open(dataset_path) as f:
+    with open(test_dataset_path) as f:
         f.readline()
         for line in tqdm(f):
             data = line.strip().split("\t")
@@ -260,13 +259,14 @@ def test_keyword(checkpoint_dir, dataset_path):
     return ctr[0] / total_row
 
 
-def hyperparams_search(config_file, dataset_path, num_trials=50, force=False):
+def hyperparams_search(config_file, dataset_path, test_dataset_path, num_trials=50, force=False):
     import optuna
     from optuna.integration import TFKerasPruningCallback
 
     def objective(trial):
         tf.keras.backend.clear_session()
 
+        dataset_name = get_basename(dataset_path)
         config_name = os.path.splitext(os.path.basename(config_file))[0]
         config = load_json(config_file)
         hyp_config = config["hyp"]
@@ -285,13 +285,13 @@ def hyperparams_search(config_file, dataset_path, num_trials=50, force=False):
             config_name += f"_{k_list[-1]}-{val}"
 
         config.pop("hyp")
-        checkpoint_dir = f"/tmp/{config_name}"
+        checkpoint_dir = f"/tmp/{dataset_name}/{config_name}"
         trial_config_file = os.path.join(f"/tmp/hyp_{get_current_time_str()}.json")
         save_json(trial_config_file, config)
 
-        best_val = train(trial_config_file, checkpoint_dir, force=force)
-        if dataset_path:
-            best_val = test_keyword(checkpoint_dir, dataset_path)
+        best_val = train(trial_config_file, dataset_path, checkpoint_dir, force=force)
+        if test_dataset_path:
+            best_val = test_keyword(checkpoint_dir, test_dataset_path)
         return best_val
 
     study = optuna.create_study(study_name="mf", direction="maximize")

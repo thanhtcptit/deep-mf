@@ -1,0 +1,9 @@
+{
+    "path": {
+        "raw": "data/raw/100k",
+        "processed": "data/processed/100k_ntpr-50"
+    },
+    "negative_sampling": {
+        "neg_to_pos_ratio": 50
+    }
+}

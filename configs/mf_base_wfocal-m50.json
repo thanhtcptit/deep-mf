@@ -1,12 +1,5 @@
 {
     "seed": 442,
-    "data": {
-        "path": {
-            "raw": "data/raw/100k",
-            "processed": "data/processed/100k_ntpr-10"
-        },
-        "neg_to_pos_ratio": 10
-    },
     "model": {
         "type": "mf",
         "latent_dim": 32,
@@ -20,8 +13,8 @@
         "batch_size": 2560,
         "mode": "train_jointly",
         "loss_fn": {
-            "type": "wbce",
-            "multiply": 2
+            "type": "wfocal",
+            "multiply": 50
         },
         "optimizer": {
             "type": "sgd",
@@ -36,18 +29,9 @@
         "validate_step": 5000
     },
     "hyp": {
-        "trainer.loss_fn.type": {
-            "type": "categorical",
-            "values": ["wbce", "wmse", "wfocal"]
-        },
         "trainer.loss_fn.multiply": {
             "type": "categorical",
-            "values": [0, 1, 2, 4, 8]
-        },
-        "trainer.optimizer.learning_rate": {
-            "type": "float",
-            "range": [0.5, 3.0],
-            "log": true
+            "values": [20, 50, 100, 200, 500]
         }
     }
 }

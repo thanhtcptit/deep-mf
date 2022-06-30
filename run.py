@@ -92,6 +92,9 @@ class Train(Subcommand):
             "config_path", type=str,
             help="path to parameter file describing the model to be trained")
         subparser.add_argument(
+            "dataset_path", type=str,
+            help="path to the training dataset")
+        subparser.add_argument(
             "-s", "--save_dir", type=str, default="",
             help="directory in which to save the model and its logs")
         subparser.add_argument(
@@ -108,7 +111,7 @@ class Train(Subcommand):
 
 def train_model(args):
     from src.train import train as func
-    return func(args.config_path, args.save_dir, args.recover, args.force)
+    return func(args.config_path, args.dataset_path, args.save_dir, args.recover, args.force)
 
 
 class HyperparamsSearch(Subcommand):
@@ -120,6 +123,9 @@ class HyperparamsSearch(Subcommand):
         subparser.add_argument(
             "config_path", type=str,
             help="path to the json config file")
+        subparser.add_argument(
+            "dataset_path", type=str,
+            help="path to the training dataset")
         subparser.add_argument(
             "-t", "--test_dataset_path", type=str, default=None,
             help="path to evaluate dataset")
@@ -136,7 +142,7 @@ class HyperparamsSearch(Subcommand):
 
 def hyperparams_search(args):
     from src.train import hyperparams_search as func
-    return func(args.config_path, args.test_dataset_path, args.num_trials, args.force)
+    return func(args.config_path, args.dataset_path, args.test_dataset_path, args.num_trials, args.force)
 
 
 class Evaluate(Subcommand):
@@ -149,7 +155,7 @@ class Evaluate(Subcommand):
             "checkpoint_path", type=str,
             help=("path to the model checkpoint"))
         subparser.add_argument(
-            "-d", "--dataset_path", type=str, default=None,
+            "-d", "--test_dataset_path", type=str, default=None,
             help="path to evaluate dataset")
         subparser.set_defaults(func=evaluate)
         return subparser
@@ -157,7 +163,7 @@ class Evaluate(Subcommand):
 
 def evaluate(args):
     from src.train import test as func
-    return func(args.checkpoint_path, args.dataset_path)
+    return func(args.checkpoint_path, args.test_dataset_path)
 
 
 class EvaluateKW(Subcommand):
@@ -170,7 +176,7 @@ class EvaluateKW(Subcommand):
             "checkpoint_path", type=str,
             help=("path to the model checkpoint"))
         subparser.add_argument(
-            "-d", "--dataset_path", type=str, default=None,
+            "-d", "--test_dataset_path", type=str, default=None,
             help="path to evaluate dataset")
         subparser.set_defaults(func=evaluate_kw)
         return subparser
@@ -178,7 +184,7 @@ class EvaluateKW(Subcommand):
 
 def evaluate_kw(args):
     from src.train import test_keyword as func
-    return func(args.checkpoint_path, args.dataset_path)
+    return func(args.checkpoint_path, args.test_dataset_path)
 
 
 class ExportModel(Subcommand):

@@ -49,15 +49,15 @@ def normalize(type, *args, **kwargs):
 
 def main(config_path, force):
     config = load_json(config_path)
-    data_config = config["data"]
-    raw_data_dir = data_config["path"]["raw"]
-    processed_data_dir = data_config["path"]["processed"]
+    raw_data_dir = config["path"]["raw"]
+    processed_data_dir = config["path"]["processed"]
     if os.path.exists(processed_data_dir):
         if force:
             shutil.rmtree(processed_data_dir)
         else:
             raise ValueError(f"{processed_data_dir} already exists!")
     os.makedirs(processed_data_dir, exist_ok=True)
+    shutil.copyfile(config_path, os.path.join(processed_data_dir, "config.json"))
 
     resources = ["metadata.csv", "user_map.csv", "item_map.csv", "kw_map.json"]
     for f in resources:
@@ -75,11 +75,11 @@ def main(config_path, force):
     item_map_df = pd.read_csv(item_map_file)
     item_set = set(item_map_df["index"].tolist())
 
-    if "normalize" in data_config:
-        norm_func = normalize(**data_config["normalize"])
+    if "normalize" in config:
+        norm_func = normalize(**config["normalize"])
         train_df = train_df["label"].map(lambda v: norm_func(v))
         val_df = train_df["label"].map(lambda v: norm_func(v))
-    train_df = add_negative_samples(train_df, item_set, data_config["neg_to_pos_ratio"])
+    train_df = add_negative_samples(train_df, item_set, config["negative_sampling"]["neg_to_pos_ratio"])
     train_df = train_df.sample(frac=1, random_state=442).reset_index(drop=True)
     train_df.to_csv(os.path.join(processed_data_dir, "train.csv"), index=False)
 

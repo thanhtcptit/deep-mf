@@ -130,6 +130,9 @@ class HyperparamsSearch(Subcommand):
             "-t", "--test_dataset_path", type=str, default=None,
             help="path to evaluate dataset")
         subparser.add_argument(
+            "-a", "--additional_dataset_path", type=str, default=None,
+            help="path to additional dataset")
+        subparser.add_argument(
             "-n", "--num_trials", type=str, default=None,
             help="number of trials to run")
         subparser.add_argument(
@@ -142,7 +145,8 @@ class HyperparamsSearch(Subcommand):
 
 def hyperparams_search(args):
     from src.train import hyperparams_search as func
-    return func(args.config_path, args.dataset_path, args.test_dataset_path, args.num_trials, args.force)
+    return func(args.config_path, args.dataset_path, args.test_dataset_path, args.additional_dataset_path,
+                args.num_trials, args.force)
 
 
 class Evaluate(Subcommand):
@@ -178,13 +182,16 @@ class EvaluateKW(Subcommand):
         subparser.add_argument(
             "-d", "--test_dataset_path", type=str, default=None,
             help="path to evaluate dataset")
+        subparser.add_argument(
+            "-a", "--additional_dataset_path", type=str, default=None,
+            help="path to additional dataset")
         subparser.set_defaults(func=evaluate_kw)
         return subparser
 
 
 def evaluate_kw(args):
     from src.train import test_keyword as func
-    return func(args.checkpoint_path, args.test_dataset_path)
+    return func(args.checkpoint_path, args.test_dataset_path, args.additional_dataset_path)
 
 
 class ExportModel(Subcommand):

@@ -61,3 +61,65 @@ class MF(BaseModel):
         if self.act:
             scores = getattr(tf.math, self.act)(scores)
         return keras.Model(inputs=[user_ids, item_ids], outputs=scores)
+
+
+class UserEmbedding(keras.layers.Layer):
+    def __init__(self, latent_dim, regularizer=None, **kwargs):
+        super().__init__(**kwargs)
+        self.latent_dim = latent_dim
+        self.regularizer = regularizer
+
+    def build(self, input_shape):
+        self.embedding = self.add_weight(
+            shape=(1, self.latent_dim), regularizer=self.regularizer,
+            dtype=tf.float32, name='user_emb_weight')
+        super().build(input_shape)
+
+    def call(self, _):
+        return self.embedding
+
+    def compute_output_shape(self):
+        return (1, self.latent_dim)
+
+
+class ReconstructionMF:
+    def __init__(self, item_matrix, optimizer, loss_fn, act=None, l2_reg=0, reconstruct_iter=1):
+        self.reconstruct_iter = reconstruct_iter
+
+        self.num_items = item_matrix.shape[0]
+        self.latent_dim = item_matrix.shape[1]
+
+        item_input = keras.layers.Input(shape=(1), dtype=tf.int32, name='item')
+
+        user_embedding_layer = UserEmbedding(
+            self.latent_dim, regularizer=keras.regularizers.l2(l2_reg), name='user_emb')
+        self.user_embedding_init_weights = keras.initializers.GlorotUniform(seed=42)(shape=(1, self.latent_dim))
+
+        item_embedding_layer = keras.layers.Embedding(
+            self.num_items, self.latent_dim, name='item_emb',
+                embeddings_initializer=keras.initializers.Constant(item_matrix))
+
+        user_vector = user_embedding_layer(item_input)
+        item_vector = keras.layers.Flatten(name='flatten')(item_embedding_layer(item_input))
+        pred = tf.math.reduce_sum(user_vector * item_vector, axis=-1)
+        if act:
+            pred = getattr(tf.math, act)(pred)
+        self.model = keras.Model(inputs=item_input, outputs=pred)
+
+        self.loss_fn   = loss_fn
+        self.optimizer = optimizer
+
+    def reconstruct(self, data):
+        self.model.layers[1].trainable = False
+        self.model.layers[2].set_weights([self.user_embedding_init_weights])
+
+        for _ in range(self.reconstruct_iter):
+            for batch in data:
+                with tf.GradientTape() as tape:
+                    pred = self.model(batch[0])
+                    loss = self.loss_fn(batch[1], pred)
+                    grads = tape.gradient(loss, self.model.trainable_variables)
+                    grads = [tf.clip_by_value(grad, clip_value_min=-2, clip_value_max=2)
+                             for grad in grads]
+                    self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
+        return self.model.layers[2].weights[0].numpy(), loss.numpy()

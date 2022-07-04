@@ -11,6 +11,7 @@ from pprint import pprint
 
 from src.utils import *
 from src.models.base import BaseModel
+from src.models.mf import ReconstructionMF
 
 tf.get_logger().setLevel('INFO')
 
@@ -194,7 +195,7 @@ def test(checkpoint_dir, test_dataset_path):
     return metrics
 
 
-def test_keyword(checkpoint_dir, test_dataset_path):
+def test_keyword(checkpoint_dir, test_dataset_path, additional_dataset_path=None):
     config = Params.from_file(os.path.join(checkpoint_dir, "config.json"))
     dataset_path = config["dataset_path"]
     model_config = config["model"]
@@ -220,9 +221,33 @@ def test_keyword(checkpoint_dir, test_dataset_path):
     item_to_index = {k: int(v) for k, v in load_dict(
         item_map_file, sep=",", skip_header=True).items()}
 
+    new_users_vector = {}
+    if additional_dataset_path:
+        print("Calculating latent vectors for new users")
+
+        loss_fn = build_loss_fn({"type": "mse"})
+        optimizer = build_optimizer({"type": "sgd", "learning_rate": 1.0})
+
+        mf = ReconstructionMF(item_emb, optimizer, loss_fn, act="", l2_reg=0.01, reconstruct_iter=1)
+        addtional_data = pd.read_csv(additional_dataset_path, dtype={"uid": str, "item": str, "label": np.float16})
+        addtional_data = addtional_data.groupby("uid").agg(lambda x: list(x)).reset_index()
+
+        for i, r in tqdm(addtional_data.iterrows()):
+            if r["uid"] in uid_to_index:
+                continue
+            user_data = [(item_to_index[i], l) for i, l in zip(r["item"], r["label"]) if i in item_to_index]
+            item_inds = [x[0] for x in user_data]
+            labels = [x[1] for x in user_data]
+            if len(labels) == 0:
+                continue
+            user_tf_dataset = tf.data.Dataset.from_tensor_slices((item_inds, labels)).batch(1024)
+            user_vector, _ = mf.reconstruct(user_tf_dataset)
+            new_users_vector[r["uid"]] = user_vector
+        print(len(new_users_vector))
+
     top_k = [3, 5]
-    ctr = [0, 0]
-    total_row = 0
+    ctr, new_users_ctr = [0, 0], [0, 0]
+    total_row, new_users_total_row = 0, 0
     count_na = 0
     user_list = []
     with open(test_dataset_path) as f:
@@ -230,7 +255,8 @@ def test_keyword(checkpoint_dir, test_dataset_path):
         for line in tqdm(f):
             data = line.strip().split("\t")
             uid, kw, item = data[0], data[3], data[4]
-            if uid not in uid_to_index or item not in item_to_index or kw not in kw_to_item_list:  
+            if (uid not in uid_to_index and uid not in new_users_vector) or \
+                item not in item_to_index or kw not in kw_to_item_list:  
                 count_na += 1
                 continue
             user_list.append(uid)
@@ -243,23 +269,35 @@ def test_keyword(checkpoint_dir, test_dataset_path):
 
             clicked_ind_pos = candidate_item_inds.index(clicked_ind)
             candidate_item_vector = item_emb[candidate_item_inds]
-            user_vector = np.expand_dims(user_emb[uid_to_index[uid]], axis=0)
+            if uid in uid_to_index:
+                new_user = False
+                user_vector = np.expand_dims(user_emb[uid_to_index[uid]], axis=0)
+            else:
+                new_user = True
+                user_vector = new_users_vector[uid]
+                new_users_total_row += 1
+
             scores = user_vector @ candidate_item_vector.T
             sorted_scores = np.argsort(scores[0])[::-1]
             for i, k in enumerate(top_k):
                 top_k_pos = sorted_scores[:k].tolist()
                 if clicked_ind_pos in top_k_pos:
                     ctr[i] += 1
+                    if new_user:
+                        new_users_ctr[i] += 1
             total_row += 1
 
     print("Total: ", total_row)
     print("NA: ", count_na)
     for i, k in enumerate(top_k):
         print(f"CTR@{k}: {ctr[i] / total_row:.04f}")
+        if len(new_users_vector):
+            print(f"New users: CTR@{k}: {new_users_ctr[i] / new_users_total_row:.04f}")
     return ctr[0] / total_row
 
 
-def hyperparams_search(config_file, dataset_path, test_dataset_path, num_trials=50, force=False):
+def hyperparams_search(config_file, dataset_path, test_dataset_path, additional_dataset_path=None,
+                       num_trials=50, force=False):
     import optuna
     from optuna.integration import TFKerasPruningCallback
 
@@ -291,7 +329,7 @@ def hyperparams_search(config_file, dataset_path, test_dataset_path, num_trials=
 
         best_val = train(trial_config_file, dataset_path, checkpoint_dir, force=force)
         if test_dataset_path:
-            best_val = test_keyword(checkpoint_dir, test_dataset_path)
+            best_val = test_keyword(checkpoint_dir, test_dataset_path, additional_dataset_path)
         return best_val
 
     study = optuna.create_study(study_name="mf", direction="maximize")

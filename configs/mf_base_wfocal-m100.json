@@ -14,7 +14,7 @@
         "mode": "train_jointly",
         "loss_fn": {
             "type": "wfocal",
-            "multiply": 50
+            "multiply": 100
         },
         "optimizer": {
             "type": "sgd",

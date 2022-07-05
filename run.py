@@ -35,7 +35,8 @@ def main(subcommand_overrides={}):
     subcommands = {
         "preprocess": Preprocess(),
         "train": Train(),
-        "hyp": HyperparamsSearch(),
+        "hyp_train": HyperparamsSearchTraining(),
+        "hyp_recon": HyperparamsSearchReconstruction(),
         "eval": Evaluate(),
         "eval_kw": EvaluateKW(),
         "export": ExportModel(),
@@ -114,9 +115,9 @@ def train_model(args):
     return func(args.config_path, args.dataset_path, args.save_dir, args.recover, args.force)
 
 
-class HyperparamsSearch(Subcommand):
+class HyperparamsSearchTraining(Subcommand):
     def add_subparser(self, name, subparsers):
-        description = "Run hyperparams search"
+        description = "Run hyperparams search for training"
         subparser = subparsers.add_parser(name, description=description,
                                           help=description)
 
@@ -133,20 +134,52 @@ class HyperparamsSearch(Subcommand):
             "-a", "--additional_dataset_path", type=str, default=None,
             help="path to additional dataset")
         subparser.add_argument(
-            "-n", "--num_trials", type=str, default=None,
+            "-n", "--num_trials", type=int, default=100,
             help="number of trials to run")
         subparser.add_argument(
             "-f", "--force", action="store_true",
             help="force override serialization dir")
 
-        subparser.set_defaults(func=hyperparams_search)
+        subparser.set_defaults(func=hyperparams_search_training)
         return subparser
 
 
-def hyperparams_search(args):
-    from src.train import hyperparams_search as func
+def hyperparams_search_training(args):
+    from src.train import hyperparams_search_training as func
     return func(args.config_path, args.dataset_path, args.test_dataset_path, args.additional_dataset_path,
                 args.num_trials, args.force)
+
+
+class HyperparamsSearchReconstruction(Subcommand):
+    def add_subparser(self, name, subparsers):
+        description = "Run hyperparams search for reconstruction"
+        subparser = subparsers.add_parser(name, description=description,
+                                          help=description)
+
+        subparser.add_argument(
+            "config_path", type=str,
+            help="path to the json config file")
+        subparser.add_argument(
+            "checkpoint_dir", type=str,
+            help="path to the trained model checkpoint")
+        subparser.add_argument(
+            "test_dataset_path", type=str,
+            help="path to the test dataset")
+        subparser.add_argument(
+            "additional_dataset_path", type=str,
+            help="path to additional dataset")
+        subparser.add_argument(
+            "-n", "--num_trials", type=int, default=100,
+            help="number of trials to run")
+
+        subparser.set_defaults(func=hyperparams_search_training)
+        return subparser
+
+
+def hyperparams_search_training(args):
+    from src.train import hyperparams_search_reconstruction as func
+    return func(args.config_path, args.checkpoint_dir, args.test_dataset_path, args.additional_dataset_path,
+                args.num_trials)
 
 
 class Evaluate(Subcommand):

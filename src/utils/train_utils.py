@@ -52,3 +52,10 @@ def build_callback_fn(config):
         "lr_scheduler": get_lr_scheduler_callback
     }
     return callback_fn_dict[config_copy.pop("type")](**config_copy)
+
+
+def build_gradient_clipping_fn(config):
+    def grad_clip(grads):
+        return [(tf.clip_by_value(grad, clip_value_min=config["min_value"],
+                                  clip_value_max=config["max_value"])) for grad in grads]
+    return grad_clip

@@ -83,7 +83,8 @@ class UserEmbedding(keras.layers.Layer):
 
 
 class ReconstructionMF:
-    def __init__(self, item_matrix, optimizer, loss_fn, act=None, l2_reg=0, reconstruct_iter=1):
+    def __init__(self, item_matrix, act, optimizer, loss_fn, grad_clip=None, l2_reg=0, reconstruct_iter=1):
+        self.grad_clip = grad_clip
         self.reconstruct_iter = reconstruct_iter
 
         self.num_items = item_matrix.shape[0]
@@ -93,7 +94,7 @@ class ReconstructionMF:
 
         user_embedding_layer = UserEmbedding(
             self.latent_dim, regularizer=keras.regularizers.l2(l2_reg), name='user_emb')
-        self.user_embedding_init_weights = keras.initializers.GlorotUniform(seed=42)(shape=(1, self.latent_dim))
+        self.user_embedding_init_weights = keras.initializers.GlorotUniform(seed=442)(shape=(1, self.latent_dim))
 
         item_embedding_layer = keras.layers.Embedding(
             self.num_items, self.latent_dim, name='item_emb',
@@ -119,7 +120,7 @@ class ReconstructionMF:
                     pred = self.model(batch[0])
                     loss = self.loss_fn(batch[1], pred)
                     grads = tape.gradient(loss, self.model.trainable_variables)
-                    grads = [tf.clip_by_value(grad, clip_value_min=-2, clip_value_max=2)
-                             for grad in grads]
+                    if self.grad_clip:
+                        grads = self.grad_clip(grads)
                     self.optimizer.apply_gradients(zip(grads, self.model.trainable_variables))
         return self.model.layers[2].weights[0].numpy(), loss.numpy()

@@ -1,6 +1,7 @@
 import os
 import shutil
 
+import optuna
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -8,6 +9,7 @@ import tensorflow.keras as keras
 
 from tqdm import tqdm
 from pprint import pprint
+from optuna.integration import TFKerasPruningCallback
 
 from src.utils import *
 from src.models.base import BaseModel
@@ -98,6 +100,10 @@ def train(config_path, dataset_path, checkpoint_dir, recover=False, force=False)
 
     loss_fn = build_loss_fn(trainer_config["loss_fn"])
     optimizer = build_optimizer(trainer_config["optimizer"])
+    if "grad_clip" in trainer_config:
+        grad_clip_fn = build_gradient_clipping_fn(trainer_config["grad_clip"])
+    else:
+        grad_clip_fn = None
 
     @tf.function
     def train_step(x, y, train_user_emb=True, train_item_emb=True):
@@ -111,10 +117,8 @@ def train(config_path, dataset_path, checkpoint_dir, recover=False, force=False)
         if train_item_emb:
             trainable_weights.append(model.trainable_weights[1])
         grads = tape.gradient(loss_value, trainable_weights)
-        if "grad_clip" in trainer_config:
-            grads = [(tf.clip_by_value(grad, clip_value_min=trainer_config["grad_clip"]["min_value"],
-                                       clip_value_max=trainer_config["grad_clip"]["max_value"]))
-                                       for grad in grads]
+        if grad_clip_fn:
+            grads = grad_clip_fn(grads)
         optimizer.apply_gradients(zip(grads, trainable_weights))
         return loss_value
 
@@ -195,7 +199,7 @@ def test(checkpoint_dir, test_dataset_path):
     return metrics
 
 
-def test_keyword(checkpoint_dir, test_dataset_path, additional_dataset_path=None):
+def test_keyword(checkpoint_dir, test_dataset_path, additional_dataset_path=None, recontruction_config=None):
     config = Params.from_file(os.path.join(checkpoint_dir, "config.json"))
     dataset_path = config["dataset_path"]
     model_config = config["model"]
@@ -222,13 +226,22 @@ def test_keyword(checkpoint_dir, test_dataset_path, additional_dataset_path=None
         item_map_file, sep=",", skip_header=True).items()}
 
     new_users_vector = {}
-    if additional_dataset_path:
+    if additional_dataset_path and recontruction_config is not None:
         print("Calculating latent vectors for new users")
+        pprint(recontruction_config)
 
-        loss_fn = build_loss_fn({"type": "mse"})
-        optimizer = build_optimizer({"type": "sgd", "learning_rate": 1.0})
+        recon_model_config = recontruction_config["model"]
+        recon_trainer_config = recontruction_config["trainer"]
 
-        mf = ReconstructionMF(item_emb, optimizer, loss_fn, act="", l2_reg=0.01, reconstruct_iter=1)
+        loss_fn = build_loss_fn(recon_trainer_config["loss_fn"])
+        optimizer = build_optimizer(recon_trainer_config["optimizer"])
+        if "grad_clip" in recon_trainer_config:
+            grad_clip_fn = build_gradient_clipping_fn(recon_trainer_config["grad_clip"])
+        else:
+            grad_clip_fn = None
+
+        mf = ReconstructionMF(item_emb, recon_model_config["act"], optimizer, loss_fn, grad_clip_fn,
+                              l2_reg=recon_model_config["l2_reg"], reconstruct_iter=recon_trainer_config["reconstruct_iter"])
         addtional_data = pd.read_csv(additional_dataset_path, dtype={"uid": str, "item": str, "label": np.float16})
         addtional_data = addtional_data.groupby("uid").agg(lambda x: list(x)).reset_index()
 
@@ -240,7 +253,7 @@ def test_keyword(checkpoint_dir, test_dataset_path, additional_dataset_path=None
             labels = [x[1] for x in user_data]
             if len(labels) == 0:
                 continue
-            user_tf_dataset = tf.data.Dataset.from_tensor_slices((item_inds, labels)).batch(1024)
+            user_tf_dataset = tf.data.Dataset.from_tensor_slices((item_inds, labels)).batch(recon_trainer_config["batch_size"])
             user_vector, _ = mf.reconstruct(user_tf_dataset)
             new_users_vector[r["uid"]] = user_vector
         print(len(new_users_vector))
@@ -290,18 +303,15 @@ def test_keyword(checkpoint_dir, test_dataset_path, additional_dataset_path=None
     print("Total: ", total_row)
     print("NA: ", count_na)
     for i, k in enumerate(top_k):
-        print(f"CTR@{k}: {ctr[i] / total_row:.04f}")
+        print(f"[Total] CTR@{k}: {ctr[i] / total_row:.04f}")
         if len(new_users_vector):
-            print(f"New users: CTR@{k}: {new_users_ctr[i] / new_users_total_row:.04f}")
+            print(f"[New users] CTR@{k}: {new_users_ctr[i] / new_users_total_row:.04f}")
     return ctr[0] / total_row
 
 
-def hyperparams_search(config_file, dataset_path, test_dataset_path, additional_dataset_path=None,
-                       num_trials=50, force=False):
-    import optuna
-    from optuna.integration import TFKerasPruningCallback
-
-    def objective(trial):
+def hyperparams_search_training(config_file, dataset_path, test_dataset_path, additional_dataset_path=None,
+                                num_trials=100, force=False):
+    def training(trial):
         tf.keras.backend.clear_session()
 
         dataset_name = get_basename(dataset_path)
@@ -332,8 +342,49 @@ def hyperparams_search(config_file, dataset_path, test_dataset_path, additional_
             best_val = test_keyword(checkpoint_dir, test_dataset_path, additional_dataset_path)
         return best_val
 
-    study = optuna.create_study(study_name="mf", direction="maximize")
-    study.optimize(objective, n_trials=num_trials, gc_after_trial=True,
+    study = optuna.create_study(study_name="mf_training", direction="maximize")
+    study.optimize(training, n_trials=num_trials, gc_after_trial=True,
+                   catch=(tf.errors.InvalidArgumentError,))
+    print("Number of finished trials: ", len(study.trials))
+
+    df = study.trials_dataframe()
+    print(df)
+
+    print("Best trial:")
+    trial = study.best_trial
+
+    print(" - Value: ", trial.value)
+    print(" - Params: ")
+    for key, value in trial.params.items():
+        print("  - {}: {}".format(key, value))
+
+
+def hyperparams_search_reconstruction(config_file, checkpoint_dir, test_dataset_path, additional_dataset_path,
+                                      num_trials=100):
+    def reconstruction(trial):
+        tf.keras.backend.clear_session()
+
+        config = load_json(config_file)
+        hyp_config = config["hyp"]
+        for k, v in hyp_config.items():
+            k_list = k.split(".")
+            d = config
+            for i in range(len(k_list) - 1):
+                d = d[k_list[i]]
+            if v["type"] == "int":
+                val = trial.suggest_int(k, v["range"][0], v["range"][1])
+            elif v["type"] == "float":
+                val = trial.suggest_float(k, v["range"][0], v["range"][1], log=v.get("log", False))
+            elif v["type"] == "categorical":
+                val = trial.suggest_categorical(k, v["values"])
+            d[k_list[-1]] = val
+
+        config.pop("hyp")
+        best_val = test_keyword(checkpoint_dir, test_dataset_path, additional_dataset_path, config)
+        return best_val
+
+    study = optuna.create_study(study_name="mf_reconstruction", direction="maximize")
+    study.optimize(reconstruction, n_trials=num_trials, gc_after_trial=True,
                    catch=(tf.errors.InvalidArgumentError,))
     print("Number of finished trials: ", len(study.trials))
 

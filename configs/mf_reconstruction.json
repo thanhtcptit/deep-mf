@@ -1,0 +1,49 @@
+{
+    "model": {
+        "l2_reg": 0.01,
+        "act": "sigmoid"
+    },
+    "trainer": {
+        "reconstruct_iter": 1,
+        "batch_size": 64,
+        "loss_fn": {
+            "type": "wfocal",
+            "multiply": 100
+        },
+        "optimizer": {
+            "type": "sgd",
+            "learning_rate": 2.0
+        },
+        "grad_clip": {
+            "min_value": -5,
+            "max_value": 5
+        }
+    },
+    "hyp": {
+        "model.l2_reg": {
+            "type": "categorical",
+            "values": [0, 1e-1, 1e-2, 1e-3]
+        },
+        "trainer.reconstruct_iter": {
+            "type": "categorical",
+            "values": [1, 2, 5, 10, 20]
+        },
+        "trainer.batch_size": {
+            "type": "categorical",
+            "values": [1, 8, 32, 64, 256]
+        },
+        "trainer.loss_fn.type": {
+            "type": "categorical",
+            "values": ["wfocal", "wmse", "wbce"]
+        },
+        "trainer.loss_fn.multiply": {
+            "type": "categorical",
+            "values": [20, 50, 100, 200]
+        },
+        "trainer.optimizer.learning_rate": {
+            "type": "float",
+            "range": [0.5, 3],
+            "log": true
+        }
+    }
+}

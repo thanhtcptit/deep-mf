@@ -100,10 +100,9 @@ def train(config_path, dataset_path, checkpoint_dir, recover=False, force=False)
 
     loss_fn = build_loss_fn(trainer_config["loss_fn"])
     optimizer = build_optimizer(trainer_config["optimizer"])
+    grad_clip_fn = None
     if "grad_clip" in trainer_config:
         grad_clip_fn = build_gradient_clipping_fn(trainer_config["grad_clip"])
-    else:
-        grad_clip_fn = None
 
     @tf.function
     def train_step(x, y, train_user_emb=True, train_item_emb=True):
@@ -228,8 +227,11 @@ def test_keyword(checkpoint_dir, test_dataset_path, additional_dataset_path=None
     new_users_vector = {}
     if additional_dataset_path and recontruction_config is not None:
         print("Calculating latent vectors for new users")
+        if isinstance(recontruction_config, str):
+            recontruction_config = load_json(recontruction_config)
         pprint(recontruction_config)
 
+        recon_data_config = recontruction_config["data"]
         recon_model_config = recontruction_config["model"]
         recon_trainer_config = recontruction_config["trainer"]
 
@@ -245,15 +247,25 @@ def test_keyword(checkpoint_dir, test_dataset_path, additional_dataset_path=None
         addtional_data = pd.read_csv(additional_dataset_path, dtype={"uid": str, "item": str, "label": np.float16})
         addtional_data = addtional_data.groupby("uid").agg(lambda x: list(x)).reset_index()
 
+        item_set = set(list(item_to_index.values()))
         for i, r in tqdm(addtional_data.iterrows()):
             if r["uid"] in uid_to_index:
                 continue
             user_data = [(item_to_index[i], l) for i, l in zip(r["item"], r["label"]) if i in item_to_index]
-            item_inds = [x[0] for x in user_data]
+            pos_inds = [x[0] for x in user_data]
             labels = [x[1] for x in user_data]
-            if len(labels) == 0:
+            if len(labels) < 1:
                 continue
-            user_tf_dataset = tf.data.Dataset.from_tensor_slices((item_inds, labels)).batch(recon_trainer_config["batch_size"])
+
+            num_neg_samples = int(np.ceil(recon_data_config["neg_to_pos_ratio"] * len(labels)))
+            neg_candidates = list(item_set - set(pos_inds))
+            if num_neg_samples > len(neg_candidates):
+                num_neg_samples = len(neg_candidates)
+            neg_inds = np.random.choice(neg_candidates, num_neg_samples, replace=False).tolist()
+
+            train_ids = pos_inds + neg_inds
+            train_labels = labels + [0] * len(neg_inds)
+            user_tf_dataset = tf.data.Dataset.from_tensor_slices((train_ids, train_labels)).batch(recon_trainer_config["batch_size"])
             user_vector, _ = mf.reconstruct(user_tf_dataset)
             new_users_vector[r["uid"]] = user_vector
         print(len(new_users_vector))

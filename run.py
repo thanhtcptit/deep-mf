@@ -218,13 +218,17 @@ class EvaluateKW(Subcommand):
         subparser.add_argument(
             "-a", "--additional_dataset_path", type=str, default=None,
             help="path to additional dataset")
+        subparser.add_argument(
+            "-c", "--reconstruction_config", type=str, default=None,
+            help="path to the reconstruction config")
         subparser.set_defaults(func=evaluate_kw)
         return subparser
 
 
 def evaluate_kw(args):
     from src.train import test_keyword as func
-    return func(args.checkpoint_path, args.test_dataset_path, args.additional_dataset_path)
+    return func(args.checkpoint_path, args.test_dataset_path, args.additional_dataset_path,
+                args.reconstruction_config)
 
 
 class ExportModel(Subcommand):

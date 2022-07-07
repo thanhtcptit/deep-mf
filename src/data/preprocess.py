@@ -38,7 +38,7 @@ def normalize(type, *args, **kwargs):
     
     def log_linear(v):
         return kwargs["a"] * np.log10(v) + kwargs["b"]
-    
+
     d = {
         "binary": binary,
         "linear": linear,

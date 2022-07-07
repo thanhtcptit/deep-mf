@@ -1,13 +1,13 @@
 {
     "data": {
-        "neg_to_pos_ratio": 10
+        "neg_to_pos_ratio": 50
     },
     "model": {
         "l2_reg": 0.01,
         "act": ""
     },
     "trainer": {
-        "reconstruct_iter": 1,
+        "reconstruct_iter": 2,
         "batch_size": 1024,
         "loss_fn": {
             "type": "mse"
@@ -22,13 +22,6 @@
         }
     },
     "hyp": {
-        "data.neg_to_pos_ratio": {
-            "type": "categorical",
-            "values": [1, 2, 10, 50]
-        },
-        "trainer.reconstruct_iter": {
-            "type": "categorical",
-            "values": [1, 2, 5, 10]
-        }
+
     }
 }

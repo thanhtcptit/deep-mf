@@ -1,0 +1,28 @@
+{
+    "data": {
+        "neg_to_pos_ratio": 2
+    },
+    "model": {
+        "l2_reg": 0.01,
+        "act": "sigmoid"
+    },
+    "trainer": {
+        "reconstruct_iter": 2,
+        "batch_size": 1024,
+        "loss_fn": {
+            "type": "wfocal",
+            "multiply": 20
+        },
+        "optimizer": {
+            "type": "sgd",
+            "learning_rate": 2.0
+        },
+        "grad_clip": {
+            "min_value": -5,
+            "max_value": 5
+        }
+    },
+    "hyp": {
+
+    }
+}

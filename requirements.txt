@@ -8,3 +8,4 @@ intel-numpy
 pandas
 tensorflow
 optuna
+annoy

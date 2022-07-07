@@ -39,6 +39,7 @@ def main(subcommand_overrides={}):
         "hyp_recon": HyperparamsSearchReconstruction(),
         "eval": Evaluate(),
         "eval_kw": EvaluateKW(),
+        "vis_sim": VisualizeSimilarItems(),
         "export": ExportModel(),
         **subcommand_overrides
     }
@@ -229,6 +230,26 @@ def evaluate_kw(args):
     from src.train import test_keyword as func
     return func(args.checkpoint_path, args.test_dataset_path, args.additional_dataset_path,
                 args.reconstruction_config)
+
+
+class VisualizeSimilarItems(Subcommand):
+    def add_subparser(self, name, parser):
+        description = """Visualize similar item embeddings"""
+        subparser = parser.add_parser(name, description=description,
+                                      help=description)
+
+        subparser.add_argument(
+            "checkpoint_path", type=str, help="path to model checkpoint")
+        subparser.add_argument(
+            "-f", "--force", action="store_true", help="override the ann tree")
+        subparser.set_defaults(func=visualize_similar_items)
+
+        return subparser
+
+
+def visualize_similar_items(args):
+    from src.visualization.visualize_embeddings import get_similar_items as func
+    return func(args.checkpoint_path, args.force)
 
 
 class ExportModel(Subcommand):
